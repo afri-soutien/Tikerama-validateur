@@ -1,0 +1,138 @@
+Master Prompt : Création de l'Application Flutter "Tikerama Validateur"
+Objectif pour l'IA : Construire une application Flutter complète, de qualité production, en suivant scrupuleusement les spécifications ci-dessous. L'application doit être entièrement fonctionnelle en mode simulation avec des données fictives. La transition vers la production (avec une vraie API) doit se faire en modifiant une seule ligne de code.
+
+Partie 1 : Le "Commutateur de Production" - La Clé de la Simulation
+Le principe fondamental est de séparer la logique de l'application de la source des données en utilisant le Repository Pattern.
+
+Crée une classe abstraite AppRepository : Elle définira toutes les actions possibles.
+
+Méthodes : Future<User> login(...), Future<void> register(...), Future<void> forgotPassword(...), Future<ValidationResponse> verifyCode(...), Future<ScanResult> scanTicket(...), Future<List<ValidatorEvent>> fetchEvents(), Future<void> saveEvent(...), Future<List<ScanHistoryItem>> fetchHistory().
+
+Crée deux implémentations de cette classe :
+
+FakeRepository (Mode Simulation) :
+
+Elle ne fera aucun appel API.
+
+Chaque méthode simulera une réponse réussie après un court délai (Future.delayed).
+
+verifyCode renverra un ValidationResponse avec un faux accessToken.
+
+scanTicket renverra un ScanResult de succès ou d'échec de manière aléatoire pour tester les deux cas.
+
+fetchEvents renverra une liste de 2-3 événements fictifs.
+
+fetchHistory renverra une liste de scans fictifs (succès et échecs).
+
+ApiRepository (Mode Production) :
+
+Elle contiendra les vrais appels réseau avec Dio vers l'API Tikerama.
+
+Elle implémentera la logique d'ajout du Bearer Token dans les en-têtes.
+
+Utilise get_it pour l'injection : Dans service_locator.dart, tu enregistreras l'une des deux implémentations en fonction d'un simple booléen.
+
+// Dans service_locator.dart
+const bool IS_PRODUCTION = false; // <-- LE SEUL ÉLÉMENT À CHANGER
+
+void setupLocator() {
+  if (IS_PRODUCTION) {
+    getIt.registerLazySingleton<AppRepository>(() => ApiRepository());
+  } else {
+    getIt.registerLazySingleton<AppRepository>(() => FakeRepository());
+  }
+}
+
+Tous les BLoCs dépendront de AppRepository, et get_it leur fournira automatiquement la bonne version.
+
+Partie 2 : Guide d'Implémentation Étape par Étape
+Étape 1 : Configuration du Projet
+pubspec.yaml : Inclure flutter_bloc, go_router, dio, mobile_scanner, get_it, equatable, google_fonts, et light.
+
+Thème (theme.dart) : Définir un ThemeData avec la couleur primaire #e53935 (rouge) et un fond blanc. Configurer les styles de TextField et ElevatedButton pour avoir des coins arrondis (BorderRadius.circular(16)).
+
+Logo : Le logo est un widget Text('Tikerama', ...) utilisant GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 48, color: const Color(0xFFe53935)).
+
+Étape 2 : Structure des Données (Modèles)
+user_models.dart : Créer la classe User (id, fullName, email).
+
+event_models.dart :
+
+Créer une classe ValidatorEvent (id, eventName, tikeramaUrl, validationCode).
+
+Mettre à jour ValidationResponse pour qu'elle contienne final String? accessToken;.
+
+Créer une classe ScanHistoryItem (ticketId, eventName, status (succès/échec), scanDate).
+
+Étape 3 : Implémentation des Repositories
+Implémenter les classes AppRepository, FakeRepository, et ApiRepository comme décrit dans la Partie 1.
+
+Étape 4 : Logique Métier (BLoCs)
+LoginBloc : Gère la connexion, l'inscription et le mot de passe oublié en appelant le repository.
+
+EventBloc : Gère l'ajout et la récupération des ValidatorEvent. Sur l'événement StartScanSession, il appelle appRepository.verifyCode(). Si ça réussit, il navigue vers /scan.
+
+ScanBloc :
+
+Maintient un état avec les compteurs : int scannedCount, int errorCount.
+
+Sur QrCodeDetected, appelle appRepository.scanTicket().
+
+Nouveau : Sur ManualTicketValidation, appelle aussi appRepository.scanTicket().
+
+Met à jour les compteurs après chaque scan.
+
+ProfileBloc / HistoryBloc : BLoCs simples pour récupérer les informations du profil et l'historique des scans depuis le repository.
+
+Étape 5 : Interface Utilisateur (Écrans)
+Crée chaque écran en respectant le design "Cartoon 2D" (rouge et blanc) et en le connectant à son BLoC.
+
+login_screen.dart, register_screen.dart, forgot_password_screen.dart :
+
+UI : Logo texte "Tikerama", sous-titre "Espace Validateur", champs arrondis, boutons rouges.
+
+Logique : Connectés au LoginBloc.
+
+dashboard_screen.dart :
+
+UI : Grille d'icônes "cartoon" pour "Mes Événements", "Mon Profil", "Historique", "Paramètres".
+
+event_list_screen.dart :
+
+UI : Liste de Card arrondies. Chaque carte affiche le nom de l'événement et un bouton rouge "Commencer à scanner". Bouton flottant + en bas.
+
+Logique : Le bouton "Commencer à scanner" déclenche StartScanSession dans l'EventBloc. La logique de verifyCode est exécutée en arrière-plan. Si elle réussit, la navigation vers /scan est automatique. L'utilisateur n'a rien d'autre à faire.
+
+add_event_screen.dart :
+
+UI : Formulaire avec 3 champs utilisant les termes exacts :
+
+"Nom de l'événement (pour vous)"
+
+"URL de validation Tikerama"
+
+"Code de validation"
+
+Logique : Le bouton "Sauvegarder" déclenche AddEvent dans l'EventBloc.
+
+scan_screen.dart (Amélioré) :
+
+UI :
+
+En haut de l'écran, afficher deux compteurs bien visibles : Tickets Scannés : [valeur] et Erreurs : [valeur].
+
+MobileScanner en plein écran avec une zone de ciblage.
+
+Un bouton pour le flash manuel.
+
+Nouveau : Ajouter une icône ou un bouton (par exemple, une icône de clavier ⌨️) pour passer en mode de saisie manuelle.
+
+Logique Flash Auto : Utiliser le package light pour activer le flash si lux < 100.
+
+Logique Scan : Le onDetect du scanner déclenche QrCodeDetected.
+
+Logique Saisie Manuelle : Le clic sur le bouton ⌨️ ouvre une AlertDialog avec un TextField pour "Numéro du ticket" et un bouton "Valider". Ce bouton déclenche l'événement ManualTicketValidation dans le ScanBloc.
+
+profile_screen.dart et history_screen.dart :
+
+UI : Écrans simples. Le profil affiche le nom et l'email du validateur. L'historique affiche une ListView des ScanHistoryItem avec une icône verte (succès) ou rouge (échec) à côté de chaque entrée.
